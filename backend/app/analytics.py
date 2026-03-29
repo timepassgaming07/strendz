@@ -3,7 +3,8 @@ Social Radar AI Dashboard — Trend Detection & Alert Engine
 Detects keyword spikes and sentiment anomalies.
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
+from datetime import datetime
 import re
 
 
@@ -145,3 +146,135 @@ def generate_ai_insight(posts: list[dict]) -> str:
             f"Sentiment is balanced. Key discussion topics include {top_keywords}. "
             f"Continue monitoring for any shifts in user perception."
         )
+
+
+# ── New Industry Analytics ────────────────────────────────────────────────
+
+
+def get_posting_calendar(posts: list[dict]) -> dict:
+    """Return posting activity per day for the current month."""
+    now = datetime.utcnow()
+    year, month = now.year, now.month
+    day_counts: dict[int, int] = defaultdict(int)
+    for p in posts:
+        try:
+            ts = p.get("timestamp", "")
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            if dt.year == year and dt.month == month:
+                day_counts[dt.day] += 1
+        except (ValueError, TypeError):
+            continue
+    return {
+        "year": year,
+        "month": month,
+        "days": {str(k): v for k, v in sorted(day_counts.items())},
+    }
+
+
+def get_peak_hours(posts: list[dict]) -> list[dict]:
+    """Find peak engagement hours — which hours get the most interactions."""
+    hour_eng: dict[int, dict] = defaultdict(lambda: {"posts": 0, "engagement": 0, "likes": 0, "comments": 0})
+    for p in posts:
+        try:
+            ts = p.get("timestamp", "")
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            h = dt.hour
+            eng = p.get("engagement", {})
+            total = eng.get("likes", 0) + eng.get("shares", 0) + eng.get("comments", 0)
+            hour_eng[h]["posts"] += 1
+            hour_eng[h]["engagement"] += total
+            hour_eng[h]["likes"] += eng.get("likes", 0)
+            hour_eng[h]["comments"] += eng.get("comments", 0)
+        except (ValueError, TypeError):
+            continue
+    result = []
+    for h in range(24):
+        d = hour_eng.get(h, {"posts": 0, "engagement": 0, "likes": 0, "comments": 0})
+        result.append({
+            "hour": h,
+            "label": f"{h:02d}:00",
+            "posts": d["posts"],
+            "engagement": d["engagement"],
+            "avg_engagement": round(d["engagement"] / max(d["posts"], 1), 1),
+        })
+    return result
+
+
+def get_sentiment_distribution(posts: list[dict]) -> dict:
+    """Detailed sentiment distribution with polarity histogram."""
+    buckets = {"positive": 0, "negative": 0, "neutral": 0}
+    polarity_ranges = [
+        {"range": "-1.0 to -0.5", "min": -1.0, "max": -0.5, "count": 0},
+        {"range": "-0.5 to -0.1", "min": -0.5, "max": -0.1, "count": 0},
+        {"range": "-0.1 to 0.1", "min": -0.1, "max": 0.1, "count": 0},
+        {"range": "0.1 to 0.5", "min": 0.1, "max": 0.5, "count": 0},
+        {"range": "0.5 to 1.0", "min": 0.5, "max": 1.0, "count": 0},
+    ]
+    total_polarity = 0.0
+    total_subjectivity = 0.0
+
+    for p in posts:
+        s = p.get("sentiment", {})
+        label = s.get("label", "neutral")
+        pol = s.get("polarity", 0.0)
+        sub = s.get("subjectivity", 0.0)
+        buckets[label] = buckets.get(label, 0) + 1
+        total_polarity += pol
+        total_subjectivity += sub
+        for b in polarity_ranges:
+            if b["min"] <= pol < b["max"] or (b["max"] == 1.0 and pol == 1.0):
+                b["count"] += 1
+                break
+
+    n = max(len(posts), 1)
+    return {
+        "distribution": buckets,
+        "polarity_histogram": [{"range": b["range"], "count": b["count"]} for b in polarity_ranges],
+        "avg_polarity": round(total_polarity / n, 3),
+        "avg_subjectivity": round(total_subjectivity / n, 3),
+    }
+
+
+def get_top_content(posts: list[dict], top_n: int = 5) -> dict:
+    """Get top and bottom performing content by engagement."""
+    scored = []
+    for p in posts:
+        eng = p.get("engagement", {})
+        total = eng.get("likes", 0) + eng.get("shares", 0) + eng.get("comments", 0)
+        scored.append({
+            "id": p.get("id", ""),
+            "text": p.get("text", "")[:120],
+            "author": p.get("author", ""),
+            "platform": p.get("platform", ""),
+            "sentiment": p.get("sentiment", {}).get("label", "neutral"),
+            "engagement": total,
+            "likes": eng.get("likes", 0),
+            "comments": eng.get("comments", 0),
+            "timestamp": p.get("timestamp", ""),
+        })
+    scored.sort(key=lambda x: x["engagement"], reverse=True)
+    return {
+        "top": scored[:top_n],
+        "bottom": scored[-top_n:] if len(scored) > top_n else [],
+    }
+
+
+def get_comment_sentiment(posts: list[dict]) -> dict:
+    """Analyze sentiment breakdown of comments vs posts."""
+    post_sent = {"positive": 0, "negative": 0, "neutral": 0}
+    comment_sent = {"positive": 0, "negative": 0, "neutral": 0}
+
+    for p in posts:
+        label = p.get("sentiment", {}).get("label", "neutral")
+        mt = p.get("media_type", "")
+        if mt == "COMMENT" or p.get("is_comment"):
+            comment_sent[label] = comment_sent.get(label, 0) + 1
+        else:
+            post_sent[label] = post_sent.get(label, 0) + 1
+
+    return {
+        "posts": post_sent,
+        "comments": comment_sent,
+        "post_total": sum(post_sent.values()),
+        "comment_total": sum(comment_sent.values()),
+    }

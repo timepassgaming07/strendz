@@ -157,7 +157,7 @@ export default function ProfileSidebar({ posts, mood = "neutral", summary, realP
         </motion.div>
 
         <h2 className="mt-2.5 text-sm font-semibold text-white/90 tracking-tight relative z-10">
-          {realProfile?.name || "Social Radar"}
+          {realProfile?.name || "Strendz"}
         </h2>
         <p className="text-[10px] text-gray-500 relative z-10">
           {realProfile?.handle || "@socialradar_ai"}

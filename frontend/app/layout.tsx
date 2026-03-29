@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Social Radar AI Dashboard",
+  title: "Strendz — AI Social Analytics",
   description: "Real-time social media analytics powered by AI",
 };
 

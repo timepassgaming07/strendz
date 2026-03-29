@@ -173,4 +173,61 @@ export const api = {
       method: "POST",
       body: JSON.stringify(username ? { username } : { subreddit }),
     }),
+
+  // New analytics endpoints
+  getPostingCalendar: () =>
+    fetchAPI<{ year: number; month: number; days: Record<string, number> }>("/posting-calendar"),
+
+  getPeakHours: () =>
+    fetchAPI<{
+      hours: {
+        hour: number;
+        label: string;
+        posts: number;
+        engagement: number;
+        avg_engagement: number;
+      }[];
+    }>("/peak-hours"),
+
+  getSentimentDistribution: () =>
+    fetchAPI<{
+      distribution: { positive: number; negative: number; neutral: number };
+      polarity_histogram: { range: string; count: number }[];
+      avg_polarity: number;
+      avg_subjectivity: number;
+    }>("/sentiment-distribution"),
+
+  getTopContent: (topN = 5) =>
+    fetchAPI<{
+      top: {
+        id: string;
+        text: string;
+        author: string;
+        platform: string;
+        sentiment: string;
+        engagement: number;
+        likes: number;
+        comments: number;
+        timestamp: string;
+      }[];
+      bottom: {
+        id: string;
+        text: string;
+        author: string;
+        platform: string;
+        sentiment: string;
+        engagement: number;
+        likes: number;
+        comments: number;
+        timestamp: string;
+      }[];
+    }>("/top-content", { top_n: String(topN) }),
+
+  getCommentSentiment: () =>
+    fetchAPI<{
+      posts: { positive: number; negative: number; neutral: number };
+      comments: { positive: number; negative: number; neutral: number };
+      post_total: number;
+      comment_total: number;
+    }>("/comment-sentiment"),
 };

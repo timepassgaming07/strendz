@@ -4,10 +4,10 @@ Provides REST endpoints for the dashboard frontend.
 """
 
 from fastapi import FastAPI, Query
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
-import urllib.request, urllib.parse, json, ssl, os
+import urllib.request, urllib.parse, json, ssl, os, csv, io
 from pathlib import Path
 
 # Load .env file if present
@@ -30,10 +30,15 @@ from app.analytics import (
     get_engagement_trends,
     generate_alerts,
     generate_ai_insight,
+    get_posting_calendar,
+    get_peak_hours,
+    get_sentiment_distribution,
+    get_top_content,
+    get_comment_sentiment,
 )
 from app.social import connector
 
-app = FastAPI(title="Social Radar AI Dashboard API", version="1.0.0")
+app = FastAPI(title="Strendz API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -484,6 +489,178 @@ async def sentiment_timeline():
             "negative": b["negative"],
         })
     return {"timeline": timeline}
+
+
+# ── New Analytics Endpoints ───────────────────────────────────────────────
+
+
+@app.get("/posting-calendar")
+async def posting_calendar():
+    """Get posting activity per day for the current month."""
+    return get_posting_calendar(ensure_data())
+
+
+@app.get("/peak-hours")
+async def peak_hours():
+    """Get engagement by hour of day."""
+    return {"hours": get_peak_hours(ensure_data())}
+
+
+@app.get("/sentiment-distribution")
+async def sentiment_distribution():
+    """Get detailed sentiment distribution with polarity histogram."""
+    return get_sentiment_distribution(ensure_data())
+
+
+@app.get("/top-content")
+async def top_content(top_n: int = Query(5, ge=1, le=20)):
+    """Get top and bottom performing content by engagement."""
+    return get_top_content(ensure_data(), top_n)
+
+
+@app.get("/comment-sentiment")
+async def comment_sentiment():
+    """Get sentiment breakdown for comments vs posts."""
+    return get_comment_sentiment(ensure_data())
+
+
+@app.get("/report/download")
+async def download_report(format: str = Query("csv", regex="^(csv|json|txt|md)$")):
+    """Download a full analytics report in the specified format."""
+    posts = ensure_data()
+    summary = get_sentiment_summary(posts)
+    keywords = get_trending_keywords(posts, 10)
+    engagement = get_engagement_trends(posts)
+    peak = get_peak_hours(posts)
+    dist = get_sentiment_distribution(posts)
+    top = get_top_content(posts, 10)
+    cal = get_posting_calendar(posts)
+    cs = get_comment_sentiment(posts)
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+    if format == "json":
+        report = {
+            "generated_at": now,
+            "summary": summary,
+            "keywords": keywords,
+            "engagement": engagement,
+            "peak_hours": peak,
+            "sentiment_distribution": dist,
+            "top_content": top,
+            "posting_calendar": cal,
+            "comment_sentiment": cs,
+            "posts": [{"id": p.get("id"), "text": p.get("text", "")[:200], "author": p.get("author"), "platform": p.get("platform"), "timestamp": p.get("timestamp"), "sentiment": p.get("sentiment", {}).get("label"), "likes": p.get("engagement", {}).get("likes", 0), "comments": p.get("engagement", {}).get("comments", 0)} for p in posts],
+        }
+        content = json.dumps(report, indent=2)
+        return StreamingResponse(
+            io.BytesIO(content.encode()),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="strendz-report-{datetime.utcnow().strftime("%Y%m%d")}.json"'},
+        )
+
+    elif format == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["id", "text", "author", "platform", "timestamp", "sentiment", "polarity", "likes", "shares", "comments"])
+        for p in posts:
+            writer.writerow([
+                p.get("id", ""),
+                p.get("text", "")[:200],
+                p.get("author", ""),
+                p.get("platform", ""),
+                p.get("timestamp", ""),
+                p.get("sentiment", {}).get("label", ""),
+                p.get("sentiment", {}).get("polarity", 0),
+                p.get("engagement", {}).get("likes", 0),
+                p.get("engagement", {}).get("shares", 0),
+                p.get("engagement", {}).get("comments", 0),
+            ])
+        content = output.getvalue()
+        return StreamingResponse(
+            io.BytesIO(content.encode()),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="strendz-report-{datetime.utcnow().strftime("%Y%m%d")}.csv"'},
+        )
+
+    elif format == "md":
+        active_peak = [h for h in peak if h["engagement"] > 0]
+        best_hour = max(active_peak, key=lambda h: h["engagement"])["label"] if active_peak else "N/A"
+        top_kws = ", ".join(k["keyword"] for k in keywords[:5])
+        lines = [
+            f"# Strendz Analytics Report",
+            f"Generated: {now}\n",
+            f"## Summary",
+            f"- **Total Mentions:** {summary['total_mentions']}",
+            f"- **Positive:** {summary['positive_pct']}% ({summary['positive_count']})",
+            f"- **Negative:** {summary['negative_pct']}% ({summary['negative_count']})",
+            f"- **Neutral:** {summary['neutral_pct']}% ({summary['neutral_count']})\n",
+            f"## Engagement",
+            f"- **Total Likes:** {engagement['total_likes']}  |  **Avg:** {engagement['avg_likes']}",
+            f"- **Total Comments:** {engagement['total_comments']}  |  **Avg:** {engagement['avg_comments']}",
+            f"- **Total Shares:** {engagement['total_shares']}  |  **Avg:** {engagement['avg_shares']}\n",
+            f"## Sentiment",
+            f"- **Avg Polarity:** {dist['avg_polarity']}",
+            f"- **Avg Subjectivity:** {dist['avg_subjectivity']}\n",
+            f"## Top Keywords",
+            f"{top_kws}\n",
+            f"## Best Posting Time",
+            f"**{best_hour}** — highest engagement hour\n",
+            f"## Comment vs Post Sentiment",
+            f"- Posts: {cs['post_total']} (pos {cs['posts']['positive']}, neg {cs['posts']['negative']}, neu {cs['posts']['neutral']})",
+            f"- Comments: {cs['comment_total']} (pos {cs['comments']['positive']}, neg {cs['comments']['negative']}, neu {cs['comments']['neutral']})\n",
+            f"## Top Performing Content",
+        ]
+        for i, t in enumerate(top["top"][:5], 1):
+            lines.append(f"{i}. **{t['text'][:80]}** — {t['engagement']} engagements ({t['sentiment']})")
+        content = "\n".join(lines)
+        return StreamingResponse(
+            io.BytesIO(content.encode()),
+            media_type="text/markdown",
+            headers={"Content-Disposition": f'attachment; filename="strendz-report-{datetime.utcnow().strftime("%Y%m%d")}.md"'},
+        )
+
+    else:  # txt
+        active_peak = [h for h in peak if h["engagement"] > 0]
+        best_hour = max(active_peak, key=lambda h: h["engagement"])["label"] if active_peak else "N/A"
+        top_kws = ", ".join(k["keyword"] for k in keywords[:5])
+        lines = [
+            f"STRENDZ ANALYTICS REPORT",
+            f"Generated: {now}",
+            f"{'=' * 50}",
+            f"",
+            f"SUMMARY",
+            f"  Total Mentions: {summary['total_mentions']}",
+            f"  Positive: {summary['positive_pct']}% ({summary['positive_count']})",
+            f"  Negative: {summary['negative_pct']}% ({summary['negative_count']})",
+            f"  Neutral:  {summary['neutral_pct']}% ({summary['neutral_count']})",
+            f"",
+            f"ENGAGEMENT",
+            f"  Total Likes: {engagement['total_likes']}   Avg: {engagement['avg_likes']}",
+            f"  Total Comments: {engagement['total_comments']}   Avg: {engagement['avg_comments']}",
+            f"  Total Shares: {engagement['total_shares']}   Avg: {engagement['avg_shares']}",
+            f"",
+            f"SENTIMENT",
+            f"  Avg Polarity: {dist['avg_polarity']}",
+            f"  Avg Subjectivity: {dist['avg_subjectivity']}",
+            f"",
+            f"TOP KEYWORDS: {top_kws}",
+            f"",
+            f"BEST POSTING TIME: {best_hour}",
+            f"",
+            f"COMMENTS vs POSTS",
+            f"  Posts:    {cs['post_total']} (pos={cs['posts']['positive']}, neg={cs['posts']['negative']}, neu={cs['posts']['neutral']})",
+            f"  Comments: {cs['comment_total']} (pos={cs['comments']['positive']}, neg={cs['comments']['negative']}, neu={cs['comments']['neutral']})",
+            f"",
+            f"TOP CONTENT",
+        ]
+        for i, t in enumerate(top["top"][:5], 1):
+            lines.append(f"  {i}. {t['text'][:80]} — {t['engagement']} eng ({t['sentiment']})")
+        content = "\n".join(lines)
+        return StreamingResponse(
+            io.BytesIO(content.encode()),
+            media_type="text/plain",
+            headers={"Content-Disposition": f'attachment; filename="strendz-report-{datetime.utcnow().strftime("%Y%m%d")}.txt"'},
+        )
 
 
 # ── Instagram OAuth Flow ──────────────────────────────────────────────────

@@ -13,6 +13,13 @@ import AiInsightBox from "@/components/AiInsightBox";
 import ProfileSidebar from "@/components/ProfileSidebar";
 import ConnectPanel from "@/components/ConnectPanel";
 import ProfileExplorer from "@/components/ProfileExplorer";
+import KeywordChart from "@/components/KeywordChart";
+import CalendarWidget from "@/components/CalendarWidget";
+import SentimentDonut from "@/components/SentimentDonut";
+import PeakHoursChart from "@/components/PeakHoursChart";
+import TopContent from "@/components/TopContent";
+import CommentSentiment from "@/components/CommentSentiment";
+import DownloadReport from "@/components/DownloadReport";
 import {
   api,
   type Post,
@@ -66,6 +73,11 @@ export default function DashboardPage() {
     avg_comments: number;
   } | null>(null);
   const [insight, setInsight] = useState<string | null>(null);
+  const [postingCalendar, setPostingCalendar] = useState<{ year: number; month: number; days: Record<string, number> } | null>(null);
+  const [peakHours, setPeakHours] = useState<{ hour: number; label: string; posts: number; engagement: number; avg_engagement: number }[] | null>(null);
+  const [sentimentDist, setSentimentDist] = useState<{ distribution: { positive: number; negative: number; neutral: number }; polarity_histogram: { range: string; count: number }[]; avg_polarity: number; avg_subjectivity: number } | null>(null);
+  const [topContent, setTopContent] = useState<{ top: { id: string; text: string; author: string; platform: string; sentiment: string; engagement: number; likes: number; comments: number; timestamp: string }[]; bottom: { id: string; text: string; author: string; platform: string; sentiment: string; engagement: number; likes: number; comments: number; timestamp: string }[] } | null>(null);
+  const [commentSent, setCommentSent] = useState<{ posts: { positive: number; negative: number; neutral: number }; comments: { positive: number; negative: number; neutral: number }; post_total: number; comment_total: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [realProfile, setRealProfile] = useState<{
     name?: string;
@@ -96,7 +108,7 @@ export default function DashboardPage() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [dataRes, summaryRes, trendsRes, alertsRes, timelineRes, platRes, engRes, insightRes] =
+      const [dataRes, summaryRes, trendsRes, alertsRes, timelineRes, platRes, engRes, insightRes, calRes, peakRes, sentDistRes, topRes, commentRes] =
         await Promise.all([
           api.getData(platform || undefined, 50),
           api.getSentimentSummary(platform || undefined),
@@ -106,6 +118,11 @@ export default function DashboardPage() {
           api.getPlatformBreakdown(),
           api.getEngagement(),
           api.getAiInsight(),
+          api.getPostingCalendar(),
+          api.getPeakHours(),
+          api.getSentimentDistribution(),
+          api.getTopContent(5),
+          api.getCommentSentiment(),
         ]);
       setPosts(dataRes.posts);
       setSummary(summaryRes);
@@ -115,6 +132,11 @@ export default function DashboardPage() {
       setPlatformData(platRes);
       setEngagement(engRes);
       setInsight(insightRes.insight);
+      setPostingCalendar(calRes);
+      setPeakHours(peakRes.hours);
+      setSentimentDist(sentDistRes);
+      setTopContent(topRes);
+      setCommentSent(commentRes);
     } catch (err) {
       console.error("Fetch failed:", err);
     } finally {
@@ -202,13 +224,14 @@ export default function DashboardPage() {
                 <motion.div variants={fadeUp} className="flex items-center justify-between">
                   <div>
                     <h1 className="text-base font-semibold bg-gradient-to-r from-purple-300 via-pink-300 to-indigo-300 bg-clip-text text-transparent tracking-tight">
-                      Social Radar
+                      Strendz
                     </h1>
                     <p className="text-[9px] text-gray-500 mt-0.5 tracking-wide">Real-time sentiment analytics</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <ProfileExplorer onSetActive={handleSetActive} />
                     <ConnectPanel onConnected={handleConnected} />
+                    <DownloadReport />
                     <FloatingSearch platform={platform} onPlatformChange={setPlatform} />
                   </div>
                 </motion.div>
@@ -238,6 +261,34 @@ export default function DashboardPage() {
                 <EngagementMetrics data={engagement} />
               </motion.div>
 
+              {/* Two-column: Sentiment Distribution + Keyword Frequency */}
+              <motion.div variants={fadeUp} className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <SentimentDonut data={sentimentDist} />
+                <KeywordChart data={keywords} />
+              </motion.div>
+
+              {/* Peak Hours — full width */}
+              <motion.div variants={fadeUp}>
+                <PeakHoursChart data={peakHours} />
+              </motion.div>
+
+              {/* Two-column: Comment Sentiment + Calendar */}
+              <motion.div variants={fadeUp} className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <CommentSentiment data={commentSent} />
+                <CalendarWidget
+                  postingDays={new Set(
+                    postingCalendar
+                      ? Object.keys(postingCalendar.days).map(Number)
+                      : []
+                  )}
+                />
+              </motion.div>
+
+              {/* Top Content — full width */}
+              <motion.div variants={fadeUp}>
+                <TopContent data={topContent} />
+              </motion.div>
+
               {/* Alerts */}
               <motion.div variants={fadeUp}>
                 <AlertsPanel alerts={alerts} mood={mood} />
@@ -245,7 +296,7 @@ export default function DashboardPage() {
 
               {/* Footer */}
               <div className="text-center text-[9px] text-gray-700/40 py-6 tracking-[0.2em] uppercase select-none">
-                Social Radar AI
+                Strendz AI
               </div>
             </main>
             </div>

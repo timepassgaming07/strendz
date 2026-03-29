@@ -81,7 +81,7 @@ export default function ProfilePanel({ posts, mood = "neutral" }: ProfilePanelPr
         </motion.div>
 
         <h2 className="mt-3 text-base font-semibold text-white/90 tracking-tight relative z-10">
-          Social Radar
+          Strendz
         </h2>
         <p className="text-[11px] text-gray-500 mt-0.5 relative z-10">
           @socialradar_ai

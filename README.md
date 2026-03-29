@@ -1,4 +1,4 @@
-# Social Radar AI Dashboard
+# Strendz — AI Social Analytics Dashboard
 
 A real-time social media analytics platform with AI-powered sentiment analysis, trend detection, and alert management.
 

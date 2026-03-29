@@ -34,7 +34,7 @@ export default function Navbar({ platform, onPlatformChange, mood = "neutral" }:
       <div className="flex items-center gap-3">
         <div>
           <h1 className="text-xl font-semibold bg-gradient-to-r from-purple-300 via-pink-300 to-indigo-300 bg-clip-text text-transparent tracking-tight">
-            Social Radar AI
+            Strendz
           </h1>
           <div className="flex items-center gap-2 mt-0.5">
             <motion.div
